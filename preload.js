@@ -1,3 +1,5 @@
+debug = true;
+
 preload_complete = false;
 
 progress_bar_full = 400;
@@ -14,6 +16,7 @@ current_empty_checks = 0;
 loading_elements = 0;
 loaded_elements = 0;
 container = "#preload_container";
+debug_loading_items = [];
 
 var timeout_id;
 
@@ -24,36 +27,81 @@ if (typeof String.prototype.endsWith !== 'function') {
     };
 }
 
+clean_loading_queue = function(queue){
+    // ran into an issue where some objects would be empty and never fire as if completing. This tracks them and
+    // then allocates space in the queue to account for the bug. It's a workaround - worth investigating further why that's
+    // happening. Possibly need to  make sure that items exist correctly initially
+
+    console.log("CLEANING");
+    for(var i=0; i< queue.length; i++){
+        if($(queue[i]).length == 0){
+            remove_from_queue(queue[i]);
+            loading_elements--;
+            loaded_elements++;
+        }
+    }
+
+    return queue;
+};
+
+remove_from_queue = function(remove_id){
+    index = debug_loading_items.indexOf(remove_id);
+    if (index > -1) {
+        debug_loading_items.splice(index, 1);
+    }
+};
 
 notify_on_load = function(setup_id, autodelete){
 	// autodelete keeps the DOM cleaner - maybe speeds things up for large loads
 	img_item = $("img#" + setup_id);
+
+    if(!img_item.length){ // we ended up with trying to notify about elements that don't exist. Make sure not to wait for a notification for them!
+        console.log("Item doesn't exist - " + setup_id);
+        loading_elements--;
+        loaded_elements++;
+        return;
+    }
+
+    if(debug === true){
+        debug_loading_items.push("img#" + setup_id);
+    }
+
 	img_item.on('load', function(){
 		console.log("loaded image " + setup_id);
 		loaded_elements++;
 		loading_elements--;
 		//if (autodelete === true){
 		img_item.remove();
+        if(debug === true){
+            remove_from_queue("img#" + setup_id);
+        }
 		//}
 	});
-	
+
 	img_item.on('error', function(){
         jqObj = $("img#" + setup_id);
 		console.log("failed to load image " + setup_id + ". Path: [" + jqObj.attr("src") + "]");
 		loaded_elements++;  // treat it like it succeeded - it can be loaded as needed or errors handled by the application we preload for
 		loading_elements--;
 		jqObj.remove();
+        if(debug === true){
+            index = debug_loading_items.indexOf("img#" + setup_id);
+            if (index > -1) {
+                debug_loading_items.splice(index, 1);
+            }
+        }
 	});
 };
 
 load_image = function(url, element_id){
 	setup_id = "preload_" + element_id;
     //if(url.endsWith("jpg") || url.endsWith("JPG") || url.endsWith("GIF") || url.endsWith("gif") || url.endsWith("PNG") || url.endsWith("png")){
-        $(container).append("<img src=\"" + url + "\" id=\"" + setup_id + "\" class=\"preload\">");
+        $(container).append("<img src=\"\" id=\"" + setup_id + "\" class=\"preload\">");
     //}else if(url.endsWith("js")){
         //$(container).append("<script src=\"" + url + "\" id=\"" + setup_id + "\" class=\"preload\">");
     //} // else nothing - skip it - we don't know how to preload it right now
 	notify_on_load(setup_id, true);
+    $("#" + setup_id).attr('src', url);
 };
 
 stop_preload = function(reason){
@@ -69,7 +117,19 @@ stop_preload = function(reason){
 preload = function(urls, check_interval, json_tree) {
     // preloads a set of URLs provided in the urls parameter. Must be of specific types (images as of right now). If json_tree is provided, urls is ignored and populated with urls created from the json_tree, as parsed by json_tree_to_urls. JSON trees are JSON format nested structures where directories have an attribue "name" and an attribute "children" and the children attribute is other items with the "name" attribute. Files only have the "name" attribute.
 
-    $("#preloading").dialog();
+    $("#preloading").dialog({
+        modal: true,
+        buttons: {
+            "stop_preloading":{
+                click:function () {
+                    preload_running = false;
+                    $(this).dialog("close");
+                },
+                id: "preload_button",
+                text: "Stop Preloading"
+            }
+        }
+    });
 
     if (check_interval === undefined) {
         check_interval = master_check_interval;
@@ -95,9 +155,10 @@ preload = function(urls, check_interval, json_tree) {
 	load_images = function(){
 		new_this_time = 0;
 		
-		//console.log("Attempting load!");
+		console.log("Attempting load!");
 		
 		while(loading_elements < simultaneous_load && element_ids < total_elements){  // if we have capacity to download things
+			console.log("Load = " + loading_elements);
 			//console.log("Loading new image - " + urls[element_ids]);
 			load_image(urls[element_ids], element_ids);  // start a new image loading
 			
@@ -145,13 +206,15 @@ preload = function(urls, check_interval, json_tree) {
                 timeout_id = window.setTimeout(load_images, master_check_interval);
             }
 		}else{
-			//console.log("All done!")
+			console.log("Preload Complete!");
+            $('#preload_complete').button('option', 'label', 'Close Preload');
 			$(container).show();
 			preload_complete = true;
             preload_running = false;
 		}
 		
 		set_percent(loaded_elements+loading_elements, total_elements);
+        debug_loading_items = clean_loading_queue(debug_loading_items);
 	};
 	
 	// call it the first time\
@@ -217,4 +280,4 @@ load_json_file = function(filepath) {
 		async: false
 	});
 	return jQuery.parseJSON(jsondata.responseText); //return the json object
-}
+};
