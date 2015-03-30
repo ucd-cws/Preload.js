@@ -3,6 +3,8 @@ debug = true;
 preload_complete = false;
 
 progress_bar_full = 400;
+progress_bar_container_id = "#ProgressBar";
+progress_bar = null;
 
 simultaneous_load = 16; // how many items should we load at once?
 default_simultaneous_load = simultaneous_load;
@@ -221,8 +223,18 @@ preload = function(urls, check_interval, json_tree) {
     preload_running = true;
 	timeout_id = window.setTimeout(load_images, master_check_interval);
 
+    progress_bar = $(progress_bar_container_id)
+	timeout_id = window.setTimeout(check_progress_bar_size, 5000);
+
     return timeout_id;
 };
+
+
+check_progress_bar_size = function(){
+    progress_bar_full = progress_bar.width();
+	timeout_id = window.setTimeout(check_progress_bar_size, 5000);  // a better way to do this would be on a resize of the container, or to use percents for the widths
+};
+
 
 json_tree_to_urls = function(json_tree, base_path){
     // takes a JSON tree where it's a list of objects with names and children and turns them into full URLs relative to the root
