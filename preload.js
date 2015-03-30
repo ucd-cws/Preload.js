@@ -5,6 +5,7 @@ preload_complete = false;
 progress_bar_full = 400;
 progress_bar_container_id = "#ProgressBar";
 progress_bar = null;
+percent_text_box_id = "progress_percent";
 
 simultaneous_load = 16; // how many items should we load at once?
 default_simultaneous_load = simultaneous_load;
@@ -18,7 +19,7 @@ current_empty_checks = 0;
 loading_elements = 0;
 loaded_elements = 0;
 container = "#preload_container";
-debug_loading_items = [];
+currently_loading_items = [];
 
 var timeout_id;
 
@@ -34,7 +35,7 @@ clean_loading_queue = function(queue){
     // then allocates space in the queue to account for the bug. It's a workaround - worth investigating further why that's
     // happening. Possibly need to  make sure that items exist correctly initially
 
-    console.log("CLEANING");
+    if (debug) console.log("CLEANING");
     for(var i=0; i< queue.length; i++){
         if($(queue[i]).length == 0){
             remove_from_queue(queue[i]);
@@ -47,9 +48,9 @@ clean_loading_queue = function(queue){
 };
 
 remove_from_queue = function(remove_id){
-    index = debug_loading_items.indexOf(remove_id);
+    index = currently_loading_items.indexOf(remove_id);
     if (index > -1) {
-        debug_loading_items.splice(index, 1);
+        currently_loading_items.splice(index, 1);
     }
 };
 
@@ -58,40 +59,36 @@ notify_on_load = function(setup_id, autodelete){
 	img_item = $("img#" + setup_id);
 
     if(!img_item.length){ // we ended up with trying to notify about elements that don't exist. Make sure not to wait for a notification for them!
-        console.log("Item doesn't exist - " + setup_id);
+        if (debug) console.log("Item doesn't exist - " + setup_id);
         loading_elements--;
         loaded_elements++;
         return;
     }
 
-    if(debug === true){
-        debug_loading_items.push("img#" + setup_id);
-    }
+    currently_loading_items.push("img#" + setup_id);
 
 	img_item.on('load', function(){
-		console.log("loaded image " + setup_id);
+		if (debug) console.log("loaded image " + setup_id);
 		loaded_elements++;
 		loading_elements--;
 		//if (autodelete === true){
 		img_item.remove();
-        if(debug === true){
-            remove_from_queue("img#" + setup_id);
-        }
+        remove_from_queue("img#" + setup_id);
+
 		//}
 	});
 
 	img_item.on('error', function(){
         jqObj = $("img#" + setup_id);
-		console.log("failed to load image " + setup_id + ". Path: [" + jqObj.attr("src") + "]");
+		if (debug) console.log("failed to load image " + setup_id + ". Path: [" + jqObj.attr("src") + "]");
 		loaded_elements++;  // treat it like it succeeded - it can be loaded as needed or errors handled by the application we preload for
 		loading_elements--;
 		jqObj.remove();
-        if(debug === true){
-            index = debug_loading_items.indexOf("img#" + setup_id);
-            if (index > -1) {
-                debug_loading_items.splice(index, 1);
-            }
+        index = currently_loading_items.indexOf("img#" + setup_id);
+        if (index > -1) {
+            currently_loading_items.splice(index, 1);
         }
+
 	});
 };
 
@@ -108,10 +105,10 @@ load_image = function(url, element_id){
 
 stop_preload = function(reason){
     preload_running = false;
-    if(reason !== underfined){
-        console.log("Preload stopped for reason: " + reason);
+    if(reason !== undefined){
+        if (debug) console.log("Preload stopped for reason: " + reason);
     }else{
-        console.log("Preload stopped");
+        if (debug) console.log("Preload stopped");
     }
     return false;
 };
@@ -140,7 +137,7 @@ preload = function(urls, check_interval, json_tree) {
     }
 
     if (urls === undefined && json_tree === undefined){
-        console.log("Need either a list of URLs, or a JSON tree structure of files to load!");
+        if (debug) console.log("Need either a list of URLs, or a JSON tree structure of files to load!");
     }
 
     if (json_tree !== undefined){
@@ -152,52 +149,52 @@ preload = function(urls, check_interval, json_tree) {
 	var total_elements = urls.length; // store that so we can reference it
 	var element_ids = 0; // a counter we use to determine new IDs and where we are in the URLs to load
 	
-	console.log("Will check every " + master_check_interval + "ms");
+	if (debug) console.log("Will check every " + master_check_interval + "ms");
 	
 	load_images = function(){
 		new_this_time = 0;
 		
-		console.log("Attempting load!");
+		if (debug) console.log("Attempting load!");
 		
 		while(loading_elements < simultaneous_load && element_ids < total_elements){  // if we have capacity to download things
-			console.log("Load = " + loading_elements);
-			//console.log("Loading new image - " + urls[element_ids]);
+			if (debug) console.log("Load = " + loading_elements);
+			//if (debug) console.log("Loading new image - " + urls[element_ids]);
 			load_image(urls[element_ids], element_ids);  // start a new image loading
 			
 			new_this_time++;
 			loading_elements++;
 			element_ids++;
 		}
-		//console.log("Elements: " + total_elements + ", Current: " + element_ids + ", Loading: " + loading_elements + ", Loaded: " + loaded_elements);
+		//if (debug) console.log("Elements: " + total_elements + ", Current: " + element_ids + ", Loading: " + loading_elements + ", Loaded: " + loaded_elements);
 
 		// Throttling follows!
 
         // Should we be going faster?
 		if(simultaneous_load < default_simultaneous_load && new_this_time !=0 && current_empty_checks == 0){  // if we've throttled_back at some point and we loaded one this time AND last time, then maybe we're doing alright - move the load up
-			//console.log("Increasing throttle for speedy loading. Current simultaneous download limit is " + simultaneous_load);
+			//if (debug) console.log("Increasing throttle for speedy loading. Current simultaneous download limit is " + simultaneous_load);
 			simultaneous_load++;  // allow more to come down at once
 			empty_checks_before_throttle--; // but also check a little more frequently
 		}
 
         // Track whether we got anything this time to know if we should be going slower
 		if(simultaneous_load > 1 && new_this_time == 0){  // if we can reduce the load still and we didn't add any new images this time around, then note that
-			//console.log("Couldn't add new image - queue full");
+			//if (debug) console.log("Couldn't add new image - queue full");
 			current_empty_checks++;
 		}else if(new_this_time != 0){  // otherwise, note that we loaded a new image this time by setting the counter to 0;
-			//console.log("Image loaded - clearing counter");
+			//if (debug) console.log("Image loaded - clearing counter");
 			current_empty_checks = 0;
 		}
 
         // Or should we be going slower?
 		if(simultaneous_load > 1 && current_empty_checks == empty_checks_before_throttle){
-			console.log("Throttling back for repeated inability to load new images. Current simultaneous download limit is " + simultaneous_load);
+			if (debug) console.log("Throttling back for repeated inability to load new images. Current simultaneous download limit is " + simultaneous_load);
 			simultaneous_load--;  // reduce the number of images to load at once
 			empty_checks_before_throttle++; // but also wait longer before throttling because we now have further to go 
 		}
 
         if ((current_empty_checks * master_check_interval) > failure_timeout){
             preload_running = false;
-            console.log("Preload FAILED");
+            if (debug) console.log("Preload FAILED");
         }
 	
 		//do it again while there's still content to download
@@ -208,15 +205,16 @@ preload = function(urls, check_interval, json_tree) {
                 timeout_id = window.setTimeout(load_images, master_check_interval);
             }
 		}else{
-			console.log("Preload Complete!");
-            $('#preload_complete').button('option', 'label', 'Close Preload');
+			if (debug) console.log("Preload Complete!");
+            $('#preload_button').button('option', 'label', 'Close');
 			$(container).show();
+            document.getElementById(percent_text_box_id).innerHTML = 100 + "% - Preload Complete";
 			preload_complete = true;
             preload_running = false;
 		}
 		
 		set_percent(loaded_elements+loading_elements, total_elements);
-        debug_loading_items = clean_loading_queue(debug_loading_items);
+        currently_loading_items = clean_loading_queue(currently_loading_items);
 	};
 	
 	// call it the first time\
@@ -266,7 +264,7 @@ json_tree_to_urls = function(json_tree, base_path){
 set_percent = function (current, total, bar_id, percent_id){
 
     if (percent_id === undefined){
-        percent_id = "progress_percent";
+        percent_id = percent_text_box_id;
     }
 
     if (bar_id === undefined){
